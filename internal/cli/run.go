@@ -9,11 +9,18 @@ import (
 	"io"
 
 	"github.com/PointBreaker/kvjson/internal/buildinfo"
+	"github.com/PointBreaker/kvjson/internal/interactive"
 	"github.com/PointBreaker/kvjson/internal/parser"
 )
 
+type editorFunc func() (map[string]string, error)
+
 // Run executes the CLI and returns a process exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
+	return run(args, stdout, stderr, interactive.Run)
+}
+
+func run(args []string, stdout, stderr io.Writer, editor editorFunc) int {
 	if wantsHelp(args) {
 		printUsage(stdout)
 		return 0
@@ -42,11 +49,24 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	values, err := parser.Parse(flags.Args())
-	if err != nil {
-		fmt.Fprintf(stderr, "kv: %v\n", err)
-		fmt.Fprintln(stderr, "Run 'kv --help' for usage.")
-		return 2
+	var values map[string]string
+	var err error
+	if len(flags.Args()) == 0 {
+		values, err = editor()
+		if errors.Is(err, interactive.ErrCanceled) {
+			return 130
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "kv: interactive mode: %v\n", err)
+			return 1
+		}
+	} else {
+		values, err = parser.Parse(flags.Args())
+		if err != nil {
+			fmt.Fprintf(stderr, "kv: %v\n", err)
+			fmt.Fprintln(stderr, "Run 'kv --help' for usage.")
+			return 2
+		}
 	}
 
 	var output []byte
@@ -80,10 +100,12 @@ func printUsage(output io.Writer) {
 	fmt.Fprintln(output, `kv turns compact key:value pairs into a JSON object.
 
 Usage:
+  kv
   kv [options] 'key:value, key:value'
   kv [options] 'key:value' 'key:value'
 
 Examples:
+  kv
   kv 'a:b, c:d'
   kv 'message:hello\, world, url:https://example.com/a:b'
   curl https://example.com -H 'Content-Type: application/json' --data "$(kv 'a:b, c:d')"

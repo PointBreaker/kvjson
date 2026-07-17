@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/PointBreaker/kvjson/internal/interactive"
 )
 
 func TestRunCompactJSON(t *testing.T) {
@@ -77,5 +80,50 @@ func TestRunInvalidInput(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "missing ':'") {
 		t.Fatalf("stderr = %q, want parse error", stderr.String())
+	}
+}
+
+func TestRunInteractive(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	editor := func() (map[string]string, error) {
+		return map[string]string{"name": "Alice"}, nil
+	}
+	code := run(nil, &stdout, &stderr, editor)
+	if code != 0 {
+		t.Fatalf("run() code = %d, stderr = %q", code, stderr.String())
+	}
+	if got, want := stdout.String(), "{\"name\":\"Alice\"}\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestRunInteractiveCanceled(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	editor := func() (map[string]string, error) {
+		return nil, interactive.ErrCanceled
+	}
+	code := run(nil, &stdout, &stderr, editor)
+	if code != 130 {
+		t.Fatalf("run() code = %d, want 130", code)
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, want both empty", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunInteractiveError(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	editor := func() (map[string]string, error) {
+		return nil, errors.New("no terminal")
+	}
+	code := run(nil, &stdout, &stderr, editor)
+	if code != 1 || !strings.Contains(stderr.String(), "no terminal") {
+		t.Fatalf("run() code = %d, stderr = %q", code, stderr.String())
 	}
 }

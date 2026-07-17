@@ -2,6 +2,19 @@
 
 `kv` 是一个很小的命令行工具：把紧凑的 `key:value` 输入转换成单行 JSON，方便在 `curl` 等命令中使用。
 
+不带参数运行时，会打开一个 inline 交互编辑器：
+
+```console
+$ kv
+kv · interactive JSON builder
+› 1  key [name        ] │ value [Alice       ]
+  2  key [role        ] │ value [admin       ]
+tab/⇧tab fields · ←/→ boundaries · ↑/↓ rows · enter next/finish · ctrl+d done · esc cancel
+{"name":"Alice","role":"admin"}
+```
+
+也可以继续直接传入紧凑语法：
+
 ```console
 $ kv 'a:b, c:d'
 {"a":"b","c":"d"}
@@ -16,6 +29,27 @@ curl https://example.com/api \
 ```
 
 > 请保留 `"$(...)"` 外面的双引号，确保生成的 JSON 作为一个完整参数传递。
+
+交互界面直接使用控制终端，最终 JSON 单独写入 stdout，因此无参数模式也可以用于命令替换：
+
+```bash
+curl https://example.com/api --data "$(kv)"
+```
+
+## 交互模式
+
+直接运行 `kv`，或者运行 `kv --pretty`：
+
+| 按键 | 行为 |
+| --- | --- |
+| `Tab` / `Shift+Tab` | 在 key、value 和相邻行之间移动 |
+| `←` / `→` | 在文本内移动；到输入框边界时切换输入框或行 |
+| `↑` / `↓` | 在不同行之间移动，保持当前 key/value 栏 |
+| `Enter` | 校验当前行并创建/进入下一行；在空白行按下时生成 JSON |
+| `Ctrl+D` | 校验全部行并立即生成 JSON |
+| `Esc` / `Ctrl+C` | 取消，不输出 JSON，退出码为 130 |
+
+value 可以是空字符串。完全清空一行会在生成时忽略该行；空 key、非空 value 以及重复 key 会在界面中提示错误。
 
 ## 语法
 
@@ -46,7 +80,7 @@ $ kv --pretty '语言:中文, emoji:🐝'
 
 ## 本地开发
 
-需要 Go 1.24 或更高版本：
+需要 Go 1.25 或更高版本：
 
 ```bash
 make build
@@ -56,7 +90,7 @@ make test
 make check
 ```
 
-本项目只使用 Go 标准库，并以 `CGO_ENABLED=0` 构建 Release 二进制。
+交互界面使用 Bubble Tea 和 Bubbles，并继续以 `CGO_ENABLED=0` 构建 Release 二进制。
 
 ## CI 与 Release
 
