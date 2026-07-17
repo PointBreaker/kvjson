@@ -6,12 +6,22 @@
 
 ```console
 $ kv
-kv · interactive JSON builder
-› 1  key [name        ] │ value [Alice       ]
-  2  key [role        ] │ value [admin       ]
-tab/⇧tab fields · ←/→ boundaries · ↑/↓ rows · enter next/finish · ctrl+d done · esc cancel
+ KVJSON  interactive builder
+
+╭──────────────────────────────────────────────────────────────╮
+│  01   KEY   name                 VALUE   Alice               │
+╰──────────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────╮
+│  02   KEY   role                 VALUE   admin               │
+╰──────────────────────────────────────────────────────────────╯
+
+ TAB  fields   ARROWS  navigate   ENTER  next / finish
+ CTRL+D  generate   ESC  cancel
 {"name":"Alice","role":"admin"}
 ```
+
+实际终端中，标题、KEY、VALUE、输入区和快捷键都是独立色块；当前卡片使用紫色、已完成卡片使用绿色、错误卡片使用红色，并会根据终端的深色/浅色背景自动切换配色。
 
 也可以继续直接传入紧凑语法：
 

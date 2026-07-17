@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestEditorAddsRowsAndFinishes(t *testing.T) {
@@ -79,6 +80,9 @@ func TestEditorRejectsDuplicateKeys(t *testing.T) {
 	if model.done || !strings.Contains(model.errText, "already exists") {
 		t.Fatalf("duplicate result: done=%v errText=%q", model.done, model.errText)
 	}
+	if !strings.Contains(model.View().Content, "ERROR") {
+		t.Fatalf("duplicate view should render an error card: %q", model.View().Content)
+	}
 }
 
 func TestEditorBlankRowFinishes(t *testing.T) {
@@ -95,8 +99,13 @@ func TestEditorViewIsInline(t *testing.T) {
 	if view.AltScreen {
 		t.Fatal("editor should not use the alternate screen")
 	}
-	if !strings.Contains(view.Content, "interactive JSON builder") || !strings.Contains(view.Content, "ctrl+d done") {
+	if !strings.Contains(view.Content, "KVJSON") || !strings.Contains(view.Content, "CTRL+D") || !strings.Contains(view.Content, "\x1b[") {
 		t.Fatalf("unexpected view: %q", view.Content)
+	}
+	for _, line := range strings.Split(view.Content, "\n") {
+		if width := lipgloss.Width(line); width > model.width {
+			t.Fatalf("view line width = %d, terminal width = %d", width, model.width)
+		}
 	}
 }
 

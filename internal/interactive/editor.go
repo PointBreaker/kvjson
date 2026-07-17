@@ -9,6 +9,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // ErrCanceled is returned when the user cancels interactive input.
@@ -36,6 +37,31 @@ type editorModel struct {
 	done        bool
 	canceled    bool
 	values      map[string]string
+	isDark      bool
+	styles      editorStyles
+}
+
+type editorStyles struct {
+	title            lipgloss.Style
+	subtitle         lipgloss.Style
+	cardActive       lipgloss.Style
+	cardComplete     lipgloss.Style
+	cardIdle         lipgloss.Style
+	cardError        lipgloss.Style
+	badgeActive      lipgloss.Style
+	badgeComplete    lipgloss.Style
+	badgeIdle        lipgloss.Style
+	badgeError       lipgloss.Style
+	keyLabel         lipgloss.Style
+	valueLabel       lipgloss.Style
+	inputIdle        lipgloss.Style
+	inputKeyActive   lipgloss.Style
+	inputValueActive lipgloss.Style
+	helpKey          lipgloss.Style
+	helpText         lipgloss.Style
+	errorBadge       lipgloss.Style
+	errorText        lipgloss.Style
+	ellipsis         lipgloss.Style
 }
 
 // Run opens an inline editor on the controlling terminal and returns its
@@ -78,11 +104,14 @@ func Run() (map[string]string, error) {
 
 func newEditorModel() editorModel {
 	model := editorModel{
-		rows:        []row{newRow(28)},
 		activeField: keyField,
 		width:       80,
 		height:      24,
+		isDark:      true,
+		styles:      newEditorStyles(true),
 	}
+	model.rows = []row{newRow(model.inputWidth())}
+	model.applyInputStyles()
 	model.focus(0, keyField)
 	return model
 }
@@ -102,11 +131,17 @@ func newRow(width int) row {
 }
 
 func (m editorModel) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, tea.RequestBackgroundColor)
 }
 
 func (m editorModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case tea.BackgroundColorMsg:
+		m.isDark = message.IsDark()
+		m.styles = newEditorStyles(m.isDark)
+		m.applyInputStyles()
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = message.Width
 		m.height = message.Height
@@ -161,37 +196,95 @@ func (m editorModel) View() tea.View {
 		return tea.NewView("")
 	}
 
-	var output strings.Builder
-	output.WriteString("kv · interactive JSON builder\n")
+	var sections []string
+	header := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		m.styles.title.Render("KVJSON"),
+		" ",
+		m.styles.subtitle.Render("interactive builder"),
+	)
+	sections = append(sections, header)
 
 	start, end := m.visibleRows()
+	var cards []string
 	if start > 0 {
-		output.WriteString("  …\n")
+		cards = append(cards, m.styles.ellipsis.Render("… earlier rows"))
 	}
 	for index := start; index < end; index++ {
-		marker := " "
-		if index == m.activeRow {
-			marker = "›"
-		}
-		fmt.Fprintf(
-			&output,
-			"%s %d  key [%s] │ value [%s]\n",
-			marker,
-			index+1,
-			m.rows[index].key.View(),
-			m.rows[index].value.View(),
-		)
+		cards = append(cards, m.renderRow(index))
 	}
 	if end < len(m.rows) {
-		output.WriteString("  …\n")
+		cards = append(cards, m.styles.ellipsis.Render("more rows …"))
 	}
+	sections = append(sections, strings.Join(cards, "\n\n"))
 
 	if m.errText != "" {
-		fmt.Fprintf(&output, "! %s\n", m.errText)
+		sections = append(sections, lipgloss.JoinHorizontal(
+			lipgloss.Center,
+			m.styles.errorBadge.Render("ERROR"),
+			" ",
+			m.styles.errorText.Render(m.errText),
+		))
 	}
-	output.WriteString("tab/⇧tab fields · ←/→ boundaries · ↑/↓ rows · enter next/finish · ctrl+d done · esc cancel")
+	sections = append(sections, m.renderHelp())
 
-	return tea.NewView(output.String())
+	return tea.NewView(strings.Join(sections, "\n\n"))
+}
+
+func (m editorModel) renderRow(index int) string {
+	current := m.rows[index]
+	card := m.styles.cardIdle
+	badge := m.styles.badgeIdle
+
+	if index == m.activeRow {
+		card = m.styles.cardActive
+		badge = m.styles.badgeActive
+		if m.errText != "" {
+			card = m.styles.cardError
+			badge = m.styles.badgeError
+		}
+	} else if strings.TrimSpace(current.key.Value()) != "" {
+		card = m.styles.cardComplete
+		badge = m.styles.badgeComplete
+	}
+
+	keyInput := m.styles.inputIdle
+	valueInput := m.styles.inputIdle
+	if index == m.activeRow && m.activeField == keyField {
+		keyInput = m.styles.inputKeyActive
+	}
+	if index == m.activeRow && m.activeField == valueField {
+		valueInput = m.styles.inputValueActive
+	}
+
+	content := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		badge.Render(fmt.Sprintf("%02d", index+1)),
+		" ",
+		m.styles.keyLabel.Render("KEY"),
+		" ",
+		keyInput.Render(current.key.View()),
+		"  ",
+		m.styles.valueLabel.Render("VALUE"),
+		" ",
+		valueInput.Render(current.value.View()),
+	)
+	return card.Render(content)
+}
+
+func (m editorModel) renderHelp() string {
+	firstLine := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		m.styles.helpKey.Render("TAB"), m.styles.helpText.Render(" fields  "),
+		m.styles.helpKey.Render("ARROWS"), m.styles.helpText.Render(" navigate  "),
+		m.styles.helpKey.Render("ENTER"), m.styles.helpText.Render(" next / finish"),
+	)
+	secondLine := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		m.styles.helpKey.Render("CTRL+D"), m.styles.helpText.Render(" generate  "),
+		m.styles.helpKey.Render("ESC"), m.styles.helpText.Render(" cancel"),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, firstLine, secondLine)
 }
 
 func (m *editorModel) advance() (tea.Model, tea.Cmd) {
@@ -312,8 +405,16 @@ func (m *editorModel) resizeInputs() {
 	}
 }
 
+func (m *editorModel) applyInputStyles() {
+	styles := textinput.DefaultStyles(m.isDark)
+	for index := range m.rows {
+		m.rows[index].key.SetStyles(styles)
+		m.rows[index].value.SetStyles(styles)
+	}
+}
+
 func (m editorModel) inputWidth() int {
-	width := (m.width - 27) / 2
+	width := (m.width - 31) / 2
 	if width < 8 {
 		return 8
 	}
@@ -324,7 +425,7 @@ func (m editorModel) inputWidth() int {
 }
 
 func (m editorModel) visibleRows() (int, int) {
-	maxRows := m.height - 5
+	maxRows := (m.height - 7) / 4
 	if maxRows < 1 {
 		maxRows = 1
 	}
@@ -342,4 +443,57 @@ func (m editorModel) visibleRows() (int, int) {
 		start = end - maxRows
 	}
 	return start, end
+}
+
+func newEditorStyles(isDark bool) editorStyles {
+	pick := lipgloss.LightDark(isDark)
+	primary := pick(lipgloss.Color("#6D28D9"), lipgloss.Color("#A78BFA"))
+	primaryFill := pick(lipgloss.Color("#6D28D9"), lipgloss.Color("#7C3AED"))
+	keyFill := pick(lipgloss.Color("#0E7490"), lipgloss.Color("#22D3EE"))
+	keyForeground := pick(lipgloss.Color("#FFFFFF"), lipgloss.Color("#083344"))
+	keyActive := pick(lipgloss.Color("#CFFAFE"), lipgloss.Color("#164E63"))
+	valueFill := pick(lipgloss.Color("#BE185D"), lipgloss.Color("#F472B6"))
+	valueForeground := pick(lipgloss.Color("#FFFFFF"), lipgloss.Color("#500724"))
+	valueActive := pick(lipgloss.Color("#FCE7F3"), lipgloss.Color("#831843"))
+	success := pick(lipgloss.Color("#047857"), lipgloss.Color("#34D399"))
+	successFill := pick(lipgloss.Color("#047857"), lipgloss.Color("#059669"))
+	danger := pick(lipgloss.Color("#E11D48"), lipgloss.Color("#FB7185"))
+	dangerFill := pick(lipgloss.Color("#BE123C"), lipgloss.Color("#E11D48"))
+	text := pick(lipgloss.Color("#0F172A"), lipgloss.Color("#F8FAFC"))
+	muted := pick(lipgloss.Color("#64748B"), lipgloss.Color("#94A3B8"))
+	mutedFill := pick(lipgloss.Color("#CBD5E1"), lipgloss.Color("#475569"))
+	panel := pick(lipgloss.Color("#F8FAFC"), lipgloss.Color("#0F172A"))
+	input := pick(lipgloss.Color("#E2E8F0"), lipgloss.Color("#1E293B"))
+	white := lipgloss.Color("#FFFFFF")
+
+	card := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(0, 1).
+		Background(panel)
+	badgeBase := lipgloss.NewStyle().Bold(true).Padding(0, 1)
+	labelBase := lipgloss.NewStyle().Bold(true).Padding(0, 1)
+	inputBase := lipgloss.NewStyle().Foreground(text).Padding(0, 1)
+
+	return editorStyles{
+		title:            lipgloss.NewStyle().Bold(true).Foreground(white).Background(primaryFill).Padding(0, 1),
+		subtitle:         lipgloss.NewStyle().Foreground(muted),
+		cardActive:       card.BorderForeground(primary),
+		cardComplete:     card.BorderForeground(success),
+		cardIdle:         card.BorderForeground(mutedFill),
+		cardError:        card.BorderForeground(danger),
+		badgeActive:      badgeBase.Foreground(white).Background(primaryFill),
+		badgeComplete:    badgeBase.Foreground(white).Background(successFill),
+		badgeIdle:        badgeBase.Foreground(text).Background(mutedFill),
+		badgeError:       badgeBase.Foreground(white).Background(dangerFill),
+		keyLabel:         labelBase.Foreground(keyForeground).Background(keyFill),
+		valueLabel:       labelBase.Foreground(valueForeground).Background(valueFill),
+		inputIdle:        inputBase.Background(input),
+		inputKeyActive:   inputBase.Background(keyActive),
+		inputValueActive: inputBase.Background(valueActive),
+		helpKey:          lipgloss.NewStyle().Bold(true).Foreground(primary).Background(input).Padding(0, 1),
+		helpText:         lipgloss.NewStyle().Foreground(muted),
+		errorBadge:       lipgloss.NewStyle().Bold(true).Foreground(white).Background(dangerFill).Padding(0, 1),
+		errorText:        lipgloss.NewStyle().Foreground(danger),
+		ellipsis:         lipgloss.NewStyle().Foreground(muted).Italic(true),
+	}
 }
